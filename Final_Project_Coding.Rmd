@@ -1,0 +1,242 @@
+---
+title: "Final Project Data Analysis"
+author: "Zeying Guo"
+date: "`May 15th 2024`"
+output: html_document
+---
+
+```{r}
+
+library(rmarkdown)
+library(haven)
+library(skimr)
+library(tidyverse)
+library(descr)
+library(ggplot2)
+
+```
+
+```{r}
+
+data <- read_sav("C:/Users/rvion/OneDrive/Desktop/Umass_Amherst/DACSS690E/Final Project/Omnibus+-+Experiments+-+Spring+24_May+8,+2024_13.47.sav")
+
+data$Status <- as.character(data$Status)
+
+```
+
+## Creating New Independent Variable
+
+You will need to create a new variable that contains information about which random group a participant was assigned to for your specific experiment. Qualtrics does not make it easy to create this variable. You need to find the appropriate grouping name - see the exported Codebook - then create the new variable from that. Each possible treatment will its own variable - so if you have 4 experimental groups you will have 4 unique variables which contain the needed information. 
+
+You should give your new response options informative names that match what is in that experimental group. The names you give the response options here will be seen on your ATE analysis graphs so be thoughtful and make it short, grammatically correct and informative. 
+
+In this example, the randomized experiment has 4 total groups so I will need 4 unique variable names associated with the groups.  Qualtrics saves if the randomized variable was seen by a respondent and if so that means that is the treatment group they received. Because the questions are named - group1, group2, group3, group4 in Qualtrics, we can leverage that knowledge to easily create a new variable called 'stapleton_group'. 
+
+```{r}
+names(data)
+```
+
+
+```{r}
+
+# Subsetting demographic questions for all groups
+demos <- data %>%
+  filter(Status != "Survey Preview") %>%
+  select(rid, age, gender, hhi, ethnicity, hispanic,
+         education, political_party, zip) 
+
+dim(demos)
+```
+```{r}
+# Descriptive statistics for demographic variables
+summary(demos)
+```
+
+
+```{r}
+
+GUO <- data %>%
+  filter(Status != "Survey Preview") %>%
+  select(starts_with(c("Guo_4_exp_DO_")), rid) %>%
+  full_join(demos) %>%
+  filter(!row_number() %in% c(1, 2)) # drop the first two rows
+
+```
+
+```{r}
+
+head(GUO)
+
+```
+
+
+```{r}
+
+data <- data %>%
+  mutate(stapleton_group = case_when(
+    Guo_4_exp_DO_Q140 == 3 ~ "No_Name",
+    Guo_4_exp_DO_Q146 == 3 ~ "White_man",
+    Guo_4_exp_DO_Q147 == 3 ~ "White_woman",
+    Guo_4_exp_DO_Q141 == 3 ~ "African_man",
+    Guo_4_exp_DO_Q148 == 3 ~ "African_woman"
+  ))
+
+freq(data$stapleton_group)
+
+```
+
+## Flipping Scale for Ease of Interpretation
+
+Frequently, you will need to flip the direction of a scale to make the interpretation of your results easier for yourself and readers. Higher values of your scale should equal more of whatever is being measured in the question. For instance, if your dependent variable asked about the likelihood of doing something, then you want high values of the variable to equal higher likelihood of doing something. Qualtrics typically will export variables in the opposite direction (e.g. 1=highly likely to do something while 5='low likelihood') meaning we need to flip the scale order ourselves. 
+
+It is straightforward to do with Step 1 reviewing the initial variable to ensure you know what values need to be reordered. In this example, we have 5 response options in the Q3 variable. From the codebook, and the `attributes` function, we see that the attributes match the order above so should be flipped. 
+
+```{r}
+
+data <- data %>%
+  mutate(qual_rating = case_when(
+    Q149 == 1 ~ 1,
+    Q149 == 2 ~ 2,
+    Q149 == 3 ~ 3,
+    Q149 == 4 ~ 4,
+    Q149 == 5 ~ 5,
+    TRUE ~ NA_real_))
+
+data$qual_rating_label <- factor(data$qual_rating, levels = 1:5, labels = c("Highly Qualified", "Qualified", "Somewhat Qualified", "Not Very Qualified", "Not At All Qualified"))
+
+```
+
+```{r}
+
+summary(data$qual_rating_label)
+
+```
+```{r}
+
+freq(data$qual_rating_label)
+
+```
+
+
+```{r}
+
+anova_qual <- aov(qual_rating ~ stapleton_group, data = data)
+summary(anova_qual)
+
+```
+
+```{r}
+
+tukey_qual <- TukeyHSD(anova_qual)
+print(tukey_qual)
+
+```
+
+```{r}
+
+ggplot(data %>% drop_na(stapleton_group), aes(x = stapleton_group, y = qual_rating, fill = stapleton_group)) +
+  geom_boxplot() +
+  stat_summary(fun = mean, geom = "point", shape = 20, size = 3, color = "blue", fill = "blue") +
+  stat_summary(fun = min, geom = "point", shape = 95, size = 5, color = "red", fill = "red") +
+  stat_summary(fun = max, geom = "point", shape = 95, size = 5, color = "green", fill = "green") +
+  scale_y_continuous(breaks = 1:5, labels = c("Highly Qualified", "Qualified", "Somewhat Qualified", "Not Very Qualified", "Not At All Qualified")) +
+  labs(title = "Qualification Ratings by Treatment Group",
+       x = "Treatment Group",
+       y = "Qualification Rating") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set3") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+```{r}
+
+data <- data %>%
+  mutate(hire_likely = case_when(
+    Q143 == 2 ~ 1,
+    Q143 == 3 ~ 2,
+    Q143 == 4 ~ 3,
+    Q143 == 5 ~ 4,
+    Q143 == 6 ~ 5,
+    TRUE ~ NA_real_))
+
+data$hire_likely_label <- factor(data$hire_likely, levels = 1:5, labels = c("Highly Likely", "Likely", "Somewhat Likely", "Not Very Likely", "Not At All Likely"))
+
+```
+
+```{r}
+
+summary(data$hire_likely_label)
+
+```
+
+```{r}
+
+freq(data$hire_likely_label)
+
+```
+
+```{r}
+
+anova_hire <- aov(hire_likely ~ stapleton_group, data = data)
+summary(anova_hire)
+
+```
+
+```{r}
+
+tukey_hire <- TukeyHSD(anova_hire)
+print(tukey_hire)
+
+```
+
+```{r}
+
+ggplot(data %>% drop_na(stapleton_group), aes(x = stapleton_group, y = hire_likely, fill = stapleton_group)) +
+  geom_boxplot() +
+  stat_summary(fun = mean, geom = "point", shape = 20, size = 3, color = "blue", fill = "blue") +
+  stat_summary(fun = min, geom = "point", shape = 95, size = 5, color = "red", fill = "red") +
+  stat_summary(fun = max, geom = "point", shape = 95, size = 5, color = "green", fill = "green") +
+  scale_y_continuous(breaks = 1:5, labels = c("Highly Likely", "Likely", "Somewhat Likely", "Not Very Likely", "Not At All Likely")) +
+  labs(title = "Hiring Likelihood by Treatment Group",
+       x = "Treatment Group",
+       y = "Hiring Likelihood") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set3") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+
+data <- data %>%
+  mutate(gender_identity = factor(Q150, levels = c(1, 2, 3), labels = c("Male", "Female", "Not sure")))
+
+summary(data$gender_identity)
+
+```
+```{r}
+
+freq(data$gender_identity)
+
+```
+
+```{r}
+
+chisq_test <- chisq.test(table(data$gender_identity, data$stapleton_group))
+print(chisq_test)
+
+```
+
+```{r}
+
+ggplot(data %>% drop_na(gender_identity, stapleton_group), aes(x = stapleton_group, fill = gender_identity)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Perceived Gender Identity by Treatment Group",
+       x = "Treatment Group",
+       fill = "Perceived Gender Identity") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set3")
+
+```

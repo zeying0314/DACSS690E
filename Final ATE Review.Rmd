@@ -1,0 +1,274 @@
+---
+title: "Final Review - Analyzing ATE"
+author: "CEStapleton"
+date: '`r Sys.Date()`'
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+library(flextable) #Makes nice looking tables 
+library(mediation) #Loads the framing dataset for analysis
+library(tidyverse) #General coding
+library(haven) #Importing Data 
+library(dplyr)  #General coding
+library(descr) #Easy Frequency Distributions for Univariate Variables 
+library(stargazer) #Easy Regression Table
+library(gmodels) #Easy Crosstabs and Chi2 calculation
+library(rstatix) #Package is used to conduct all of the multivariate techniques 
+```
+
+Whenever you report ATEs, you need to include the following things:
+
+-   Mean of the DV by experimental group
+-   Measure of uncertainty of the DV by experimental group
+    -   We do this through confidence interval calculations
+-   Significance between groups
+
+This tutorial will take you through this (all of this code has been covered in class this semester)
+
+## Step 0 - Give your Experimental Treatment Groups Meaningful Names
+
+Never include numbers or non-descriptive names as your experimental group names. No one who looks at your work will know what they mean. Here, we create a new variable from the existing experimental groups that have appropriately named what each group is.
+
+```{r }
+framing <- framing %>% #This creates new variable with treatment conditions named 
+  mutate(cond2 = case_when(
+    cond ==1 ~ "Latino, Negative",
+    cond ==2 ~ "European, Negative",
+    cond ==3 ~ "Latino, Positive",
+    cond ==4 ~ "European, Positive"
+  ))
+```
+
+## Step 1 - Examine Dependent Variable Type to Decide on Analytic Approach
+
+Always review your dependent variables first to understand the number of scale points and if there are NAs in the variable. Here, let's assume we have two DVs from our experiment: emo and cong_mesg
+
+```{r step_1}
+freq(framing$emo) 
+#Here we see a variable that ranges from 3 to 12 which means we can use ANVOA or regression in our ATE and HTE Analyses
+freq(framing$cong_mesg)
+#Here we see a dichotomous DV - 0 and 1 - which means we use proportions and logit in our ATE and HTE
+```
+
+From the `freq` function from the `descr` package, we see the number of times each scale point was answered by respondents for each variable.
+
+For the first DV, `emo` we see that it ranges from 3-12, which means it can be considered a continuous DV making regression, ANOVA, etc. appropriate.
+
+For the second DV, `cong_mesg` we see that it ranges from 0-1, which means it is dichotmous. This means we should use proportions and logit in our Average Treatment Effect analysis.
+
+## Step 2 - Appropriately Analyze the DV based on Step 1
+
+### Analyzing & Graphing Continuous or Ordinal Scale 5+ points
+
+Now, we can start to analyze the ATE for our two DVs by experimental group. We start by calculating the means and the CIs for our continuous variable `emo`. We do this using tidyverse, grouping by experimental group, `cond2`, and then calculating the mean and CIs of the DV for each group.
+
+```{r continuous_dv}
+graph<-framing %>% 
+  group_by(cond2) %>% #Use our newly created variable with better names for exp. groups 
+  summarise(mean = mean(emo),
+            sd = sd(emo), 
+            n=n(), 
+            se = sd / sqrt(n),
+            ub = mean+(1.96*se), #If you want a 90% CI use 1.68 for 99% CI use 2.575
+            lb = mean-(1.96*se))
+```
+
+Next, we graph the results using GGPlot with our CIs. A critical thing to remember is that oftentimes you need to tweak a graph once it is created to make it look nicer and more professional.
+
+```{r}
+ggplot(graph, aes(x = cond2, y = mean, fill = cond2)) + 
+  theme_classic(base_size = 15) +
+  geom_bar(position = position_dodge(), stat = "identity",
+           colour = "black", linewidth = 0.3) +
+  geom_errorbar(aes(ymin = lb, ymax = ub),
+                linewidth = 0.3, width = 0.2,
+                position = position_dodge(0.9)) +
+  xlab("Experimental Group") +
+  ylab("Anxiety About Immigration") + 
+  ggtitle("") +
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.text.x = element_text(size = 15, angle = 0, hjust = 0.5)) +  # Rotate x-axis labels
+  scale_fill_manual(values = c("grey", "grey32", "grey", "grey32")) +
+  coord_cartesian(ylim = c(5, 9))  +   # Examine your scale to decide what values go here
+  scale_x_discrete(breaks = graph$cond2) +  # Use wrapped labels
+  scale_y_continuous(breaks = seq(5, 9, 1)) +  # Examine your scale to decide what values go here
+  guides(fill = "none")  # Drop the legend
+```
+
+Now that I see the initial graph, I do not like the way the labels look all scrunched up. So next step is to make those look nicer. To do this, we create a new variable in the `graph` dataframe that simply wraps labels onto 2 rows. This way we can take advantage of more white space below the graph then we have horizontally on the graph. We will use the `str_wrap` function from tidyverse to do this.
+
+Then when we tell `ggplot` what to graph on the x-axis, we will tell it to use the new variable that we just created that has the wrapped_labels in the `scale_x_discrete` part of the code.
+
+`scale_x_discrete(breaks = graph$cond2, labels = wrapped_labels)  # Use wrapped labels`
+
+Other things to keep in mind when graphing is the scale on the y-axis. Here we control that with two lines of code.
+
+`coord_cartesian(ylim = c(5, 9))` `scale_y_continuous(breaks = seq(5, 9, 1)) +  # Ticks from min-max, every x`
+
+This code makes the y-axis range from 5 to 9 iterating by 1 for the lines on the graph. That will not be appropriate for all DVs like it is here. So you need to update that to match the range of your DV that makes the graph look the nicest.
+
+```{r}
+
+wrapped_labels <- str_wrap(graph$cond2, width = 5)  # Wraps long x-axis labels onto two lines
+
+ggplot(graph, aes(x = cond2, y = mean, fill = cond2)) + 
+  theme_classic(base_size = 15) +
+  geom_bar(position = position_dodge(), stat = "identity",
+           colour = "black", linewidth = 0.3) +
+  geom_errorbar(aes(ymin = lb, ymax = ub),
+                linewidth = 0.3, width = 0.2,
+                position = position_dodge(0.9)) +
+  xlab("Immigrant Background") +
+  ylab("Anxiety About Immigration") + 
+  ggtitle("") +
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.text.x = element_text(size = 15, angle = 0, hjust = 0.5)) +  # Rotate x-axis labels
+  scale_fill_manual(values = c("grey", "grey32", "grey", "grey32")) +
+  coord_cartesian(ylim = c(5, 9))  +
+  scale_y_continuous(breaks = seq(5, 9, 1)) +  # Ticks from min-max, every x
+  scale_x_discrete(breaks = graph$cond2, labels = wrapped_labels) +  # Use wrapped labels
+    guides(fill = "none")  # Drop the legend
+
+```
+
+Now, we can clearly see using a nicely formatted table the mean of the `emo` DV for each experimental group and the appropriately sized confidence interval for each group. This graph type is perfect graph for your virtual poster and your final paper since it shows everything that we need to show as mentioned at the top of this tutorial.
+
+But we are not quite done yet. We still need to more finely test for significance between experimental groups using linear regression or ANOVA with pairwise comparisons.
+
+You need to include in your paper either a linear model (when appropriate for the DV type) or ANOVA pairwise comparison p-values.
+
+We start with linear regression and reporting using `stargazer`. Once again, it is imperative that you clean up the variable names in the reported table so that your readers know what they are looking at. We can easily do this directly in the `stargazer` command.
+
+`stargazer(lm1, digits=3,dep.var.labels=c("Negative Emotionality"),` `covariate.labels=c("European, Positive Group", "Latino, Negative Group",` `"Latino, Positive Group"),` `type="html", out="ex1.htm") #Stargazer`
+
+```{r}
+lm1<-lm(emo ~ cond2, data=framing)
+
+stargazer(lm1, type="text") #This is not appropriately formatted for publication as the row names are confusing
+stargazer(lm1, digits=3,dep.var.labels=c("Negative Emotionality"),
+          covariate.labels=c("European, Positive Group", "Latino, Negative Group", 
+                             "Latino, Positive Group"),
+          type="text") #More appropriately formatted stargazer table
+stargazer(lm1, digits=3,dep.var.labels=c("Negative Emotionality"),
+          covariate.labels=c("European, Positive Group", "Latino, Negative Group", 
+                             "Latino, Positive Group"),
+          type="html", out="ex1.htm") #Stargazer
+```
+
+This type of stargazer table with cleaned up IV names and DV name is appropriate to be displayed in your final paper (and any future regression analysis you do). 
+
+If using ANOVA with pairwise comparison instead of linear regression - either is appropriate - then you use this approach to save the p-values in a dataframe to be included in a table using `flextable`. 
+
+```{r}
+anova_result <- aov(emo ~ cond2, data = framing)
+pairwise_comparison <- pairwise.t.test(framing$emo, framing$cond2,
+                                       p.adjust.method = "bonferroni",
+                                       paired = FALSE,
+                                       alternative = "two.sided")
+
+# Print significant pairwise comparisons
+print(pairwise_comparison) #Shows the results for each pairwise comparison
+
+###Creating Table of P-values to report pairwise comparisons from ANOVA results 
+# Extract comparisons and p-values
+p_values <- pairwise_comparison$p.value ##Extract p-values from earlier pairwise_comparison results
+
+# Create a dataframe by saving pairwise comparisons 
+pairwise_df <- data.frame(p_values) #Put into data frame for flextable usage
+
+pairwise_df<-round(pairwise_df, 3) #Round p-values to 3 decimal points for ease of reading
+pairwise_df$Comparison <- rownames(pairwise_df) #Extract the row_names as column in data 
+pairwise_df <- pairwise_df[, c("Comparison", names(pairwise_df)[-ncol(pairwise_df)])] #Reorder for ease of reading
+
+```
+
+This code just saved the pairwise t-test p-values from the ANOVA with Bonferroni adjustment. Now that it is saved, we can create a nice publication quality table. But once again, you oftentimes will need to make tweaks to the table to prepare it for external readers. 
+
+```{r}
+# Create a flextable object from the dataframe
+ft <- flextable(pairwise_df)
+
+ft #This still has some weird column names so we tweak them for publication 
+
+ft<-labelizor(
+  x = ft, 
+  part = "header", 
+  labels = c("European..Negative" = "European, Negative", 
+             "European..Positive" = "European, Positive", 
+             "Latino..Negative" = "Latino, Negative"))
+ft
+
+#We can export Flextables into any number of formats 
+save_as_pptx(
+  "my table 1" = ft,
+  path = "file.pptx")
+
+```
+
+This code creates a nicely formatted table that contains the p-values extracted from the ANOVA. You can include something like this directly in your paper. 
+
+### Analyzing & Graphing Dichotomous DVs
+
+Now that we have again reviewed best ways to analyze and report ordinal and continuous DVs, we turn our attention to analyzing/graphing dichotomous (0 | 1) DVs. As mentioned above, this should be done with proportions and logit regression. 
+
+We start in a similar way as previously by calculating the mean (here it will be a proportion since the DV is 0|1). The one difference between this code and the code to graph the continuous DV is how the standard error and confidence intervals are calculated. This has a slightly different formula that is used for proportions rather than used for the mean of a continuous variable like before.
+
+And because we know we liked how the previous graph looked including the wrapped labels, we will simply copy and paste that code below the graph here. Make sure to update the y-axis label and the scale since this is a different DV with a different scale. 
+
+```{r}
+graph<-framing %>% #This code gives you the proportion requesting to send message by treatment group
+  group_by(cond2) %>%
+  summarise(mean = mean(cong_mesg),
+            n=n(), 
+            se = sqrt((mean*(1-mean))/n), #Bc DV is binary, we calculate variance using the mean & this formula
+            ub = mean+(1.96*se), 
+            lb = mean-(1.96*se))
+
+ggplot(graph, aes(x = cond2, y = mean, fill = cond2)) + 
+  theme_classic(base_size = 15) +
+  geom_bar(position = position_dodge(), stat = "identity",
+           colour = "black", linewidth = 0.3) +
+  geom_errorbar(aes(ymin = lb, ymax = ub),
+                linewidth = 0.3, width = 0.2,
+                position = position_dodge(0.9)) +
+  xlab("Experimental Group") +
+  ylab("% Want to Send Message to Congress") + 
+  ggtitle("") +
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.text.x = element_text(size = 15, angle = 0, hjust = 0.5)) +  # Rotate x-axis labels
+  scale_fill_manual(values = c("grey", "grey32", "grey", "grey32")) +
+  coord_cartesian(ylim = c(0, .6))  + #Bc this is a proportion y-axis should be somewhere between 0 & 1
+  scale_x_discrete(breaks = graph$cond2, labels = wrapped_labels) +  # Use wrapped labels
+  scale_y_continuous(breaks = seq(0, .6, .2)) +  # Ticks from min-max, every x
+  guides(fill = "none")  # Drop the legend
+
+```
+
+This nicely formatted table of proportions with appropriate CIs tells us most of the information we need to interpret the results. With overlapping confidene intervals across the groups, we cannot with any confidence say that exposure to one of the experimental treatments versus another caused respondents to want to send a message to their Congressperson. 
+
+However, to ensure that interpretation is correct, we still will run a logit model predicting the DV with the experimental group.
+
+```{r}
+logit1<-glm(cong_mesg ~ cond2, data=framing, family=binomial(link="logit"))
+stargazer(logit1, digits=3,dep.var.labels=c("Send Message to Congress"),
+          covariate.labels=c("European, Positive Group", "Latino, Negative Group", 
+                             "Latino, Positive Group"),
+          type="text") #More appropriately formatted stargazer table
+stargazer(logit1, digits=3,dep.var.labels=c("Send Message to Congress"),
+          covariate.labels=c("European, Positive Group", "Latino, Negative Group", 
+                             "Latino, Positive Group"),
+          type="html", out="ex2.htm") #Stargazer
+```
+
+Results here confirm what the graph showed (as it should if things are analyzed correctly). Including this type of table is appropriate provided it is accompanied with a graph of the results  as well. 
+
+When interpreting experimental results, you have to look at all of the possible pairwise comparisons. It is not appropriate to run a regression and only interpret the experimental groups against the reference group. Why? Because that is only part of the comparisons possible and means you are underinterpreting your results and leaving potentially interesting/important relationships unexamined. Do not do that.  
+
+Finally, when you interpret regression results, talk about the mean differences by groups using realworld language. Do not say group 1 is significantly different from group 2 and be done with it. Be more specific. For example, say the group the negatively framed news story focusing on Latino immigration caused significantly higher negative emotions compared to a positive immigration news story about both Latinos and Eastern Europeans. 
+
+
+

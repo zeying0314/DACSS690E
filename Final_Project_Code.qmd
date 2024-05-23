@@ -1,0 +1,336 @@
+---
+title: "Final_Project_Analyze_Data"
+author: "Zeying Guo"
+format: html
+editor: visual
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+```{r}
+
+# Load necessary libraries
+library(rmarkdown)
+library(haven)
+library(skimr)
+library(tidyverse)
+library(descr)
+library(ggplot2)
+
+# Load the data
+data <- read_sav("C:/Users/rvion/OneDrive/Desktop/Umass_Amherst/DACSS690E/Final Project/Omnibus+-+Experiments+-+Spring+24_May+8,+2024_13.47.sav")
+data$Status <- as.character(data$Status)
+
+names(data)
+
+```
+
+```{r}
+
+# Ensure stapleton_group is created
+data <- data %>%
+  mutate(stapleton_group = case_when(
+    Guo_4_exp_DO_Q140 == 3 ~ "No_Name",
+    Guo_4_exp_DO_Q146 == 3 ~ "White_man",
+    Guo_4_exp_DO_Q147 == 3 ~ "White_woman",
+    Guo_4_exp_DO_Q141 == 3 ~ "African_man",
+    Guo_4_exp_DO_Q148 == 3 ~ "African_woman",
+    TRUE ~ NA_character_
+  ))
+
+freq(data$stapleton_group)
+
+summary(data$stapleton_group)
+```
+
+```{r}
+
+# Subsetting demographic questions for all groups
+demos <- data %>%
+  filter(Status != "Survey Preview") %>%
+  select(rid, age, gender, hhi, ethnicity, hispanic, education, political_party, zip)
+
+# Mapping numeric codes to categorical labels for demographic variables
+demos <- demos %>%
+  mutate(
+    gender = factor(gender, levels = c(1, 2), labels = c("Male", "Female")),
+    ethnicity = factor(ethnicity, levels = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16), labels = c("White", "Black", "American Indian or Alaska Native", "Asian Indian", "Chinese", "Filipino", "Japanese", "Korean", "Vietnamese", "Asian Other", "Native Hawaiian", "Guamanian", "Samoan", "Other Pacific Islander", "Some other race", "Prefer not to answer")),
+    hhi = factor(hhi, levels = c(1:24, -3105), labels = c("Less than $14,999", "$15,000 to $19,999", "$20,000 to $24,999", "$25,000 to $29,999", "$30,000 to $34,999", "$35,000 to $39,999", "$40,000 to $44,999", "$45,000 to $49,999", "$50,000 to $54,999", "$55,000 to $59,999", "$60,000 to $64,999", "$65,000 to $69,999", "$70,000 to $74,999", "$75,000 to $79,999", "$80,000 to $84,999", "$85,000 to $89,999", "$90,000 to $94,999", "$95,000 to $99,999", "$100,000 to $124,999", "$125,000 to $149,999", "$150,000 to $174,999", "$175,000 to $199,999", "$200,000 to $249,999", "$250,000 and above", "Prefer not to answer")),
+    hispanic = factor(hispanic, levels = c(1:16, -3105), labels = c("No", "Mexican", "Cuban", "Argentina", "Colombia", "Ecuador", "El Salvador", "Guatemala", "Nicaragua", "Panama", "Peru", "Spain", "Venezuela", "Other Country", "Prefer not to answer", "Puerto Rican", "Prefer not to answer")),
+    education = factor(education, levels = c(1:8, -3105), labels = c("Some high school or less", "High school graduate", "Other post high school vocational training", "Completed some college, but no degree", "Associate's degree", "Bachelor's degree", "Master's or professional degree", "Doctorate degree", "None of the above")),
+    political_party = factor(political_party, levels = c(1:10), labels = c("Strong Democrat", "Not very strong Democrat", "Independent leaning Democrat", "Independent - neither", "Independent leaning Republican", "Other - leaning Democrat", "Other - neither", "Other - leaning Republican", "Not very strong Republican", "Strong Republican"))
+  )
+
+# Summary statistics
+summary(demos)
+```
+
+```{r}
+
+# Calculating mean and standard deviation for age
+mean_age <- mean(as.numeric(demos$age), na.rm = TRUE)
+sd_age <- sd(as.numeric(demos$age), na.rm = TRUE)
+
+# Frequencies for gender, ethnicity, and other categorical variables
+freq_gender <- table(demos$gender)
+freq_ethnicity <- table(demos$ethnicity)
+freq_education <- table(demos$education)
+freq_hispanic <- table(demos$hispanic)
+freq_hhi <- table(demos$hhi)
+freq_political_party <- table(demos$political_party)
+
+# Print demographic information
+cat("Sample Demographics:\n")
+cat("Gender: ", paste(round(prop.table(freq_gender) * 100, 2), collapse = "%, "), "%\n")
+cat("Age: Mean =", mean_age, ", SD =", sd_age, "\n")
+cat("Ethnicity: ", paste(round(prop.table(freq_ethnicity) * 100, 2), collapse = "%, "), "%\n")
+cat("Education: ", paste(round(prop.table(freq_education) * 100, 2), collapse = "%, "), "%\n")
+cat("Hispanic: ", paste(round(prop.table(freq_hispanic) * 100, 2), collapse = "%, "), "%\n")
+cat("Household Income: ", paste(round(prop.table(freq_hhi) * 100, 2), collapse = "%, "), "%\n")
+cat("Political Party: ", paste(round(prop.table(freq_political_party) * 100, 2), collapse = "%, "), "%\n")
+
+# Balance tests for demographic variables across treatment groups
+balance_tests <- list(
+  age = aov(as.numeric(age) ~ stapleton_group, data = data),
+  gender = chisq.test(table(data$gender, data$stapleton_group)),
+  ethnicity = chisq.test(table(data$ethnicity, data$stapleton_group)),
+  education = chisq.test(table(data$education, data$stapleton_group)),
+  hhi = chisq.test(table(data$hhi, data$stapleton_group)),
+  hispanic = chisq.test(table(data$hispanic, data$stapleton_group)),
+  political_party = chisq.test(table(data$political_party, data$stapleton_group))
+)
+
+# Print balance test results
+cat("\nBalance Tests:\n")
+lapply(balance_tests, summary)
+
+```
+
+```{r}
+
+# Combine GUO experiment data with demographics
+GUO <- data %>%
+  filter(Status != "Survey Preview") %>%
+  select(starts_with("Guo_4_exp_DO_"), rid) %>%
+  full_join(demos, by = "rid") %>%
+  filter(!row_number() %in% c(1, 2)) # Drop the first two rows
+
+
+```
+
+```{r}
+
+head(GUO)
+
+```
+
+```{r}
+
+data <- data %>%
+  mutate(qual_rating = case_when(
+    Q149 == 1 ~ 1,
+    Q149 == 2 ~ 2,
+    Q149 == 3 ~ 3,
+    Q149 == 4 ~ 4,
+    Q149 == 5 ~ 5,
+    TRUE ~ NA_real_))
+
+data$qual_rating_label <- factor(data$qual_rating, levels = 1:5, labels = c("Highly Qualified", "Qualified", "Somewhat Qualified", "Not Very Qualified", "Not At All Qualified"))
+
+```
+
+```{r}
+
+summary(data$qual_rating_label)
+
+```
+
+```{r}
+
+freq(data$qual_rating_label)
+
+```
+
+```{r}
+
+anova_qual <- aov(qual_rating ~ stapleton_group, data = data)
+summary(anova_qual)
+
+```
+
+```{r}
+
+tukey_qual <- TukeyHSD(anova_qual)
+print(tukey_qual)
+
+```
+
+```{r}
+
+ggplot(data %>% drop_na(stapleton_group), aes(x = stapleton_group, y = qual_rating, fill = stapleton_group)) +
+  geom_boxplot() +
+  stat_summary(fun = mean, geom = "point", shape = 20, size = 3, color = "blue", fill = "blue") +
+  stat_summary(fun = min, geom = "point", shape = 95, size = 5, color = "red", fill = "red") +
+  stat_summary(fun = max, geom = "point", shape = 95, size = 5, color = "green", fill = "green") +
+  scale_y_continuous(breaks = 1:5, labels = c("Highly Qualified", "Qualified", "Somewhat Qualified", "Not Very Qualified", "Not At All Qualified")) +
+  labs(title = "Qualification Ratings by Treatment Group",
+       x = "Treatment Group",
+       y = "Qualification Rating") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set3") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+
+data <- data %>%
+  mutate(hire_likely = case_when(
+    Q143 == 2 ~ 1,
+    Q143 == 3 ~ 2,
+    Q143 == 4 ~ 3,
+    Q143 == 5 ~ 4,
+    Q143 == 6 ~ 5,
+    TRUE ~ NA_real_))
+
+data$hire_likely_label <- factor(data$hire_likely, levels = 1:5, labels = c("Highly Likely", "Likely", "Somewhat Likely", "Not Very Likely", "Not At All Likely"))
+
+```
+
+```{r}
+
+summary(data$hire_likely_label)
+
+```
+
+```{r}
+
+freq(data$hire_likely_label)
+
+```
+
+```{r}
+
+anova_hire <- aov(hire_likely ~ stapleton_group, data = data)
+summary(anova_hire)
+
+```
+
+```{r}
+
+tukey_hire <- TukeyHSD(anova_hire)
+print(tukey_hire)
+
+```
+
+```{r}
+
+ggplot(data %>% drop_na(stapleton_group), aes(x = stapleton_group, y = hire_likely, fill = stapleton_group)) +
+  geom_boxplot() +
+  stat_summary(fun = mean, geom = "point", shape = 20, size = 3, color = "blue", fill = "blue") +
+  stat_summary(fun = min, geom = "point", shape = 95, size = 5, color = "red", fill = "red") +
+  stat_summary(fun = max, geom = "point", shape = 95, size = 5, color = "green", fill = "green") +
+  scale_y_continuous(breaks = 1:5, labels = c("Highly Likely", "Likely", "Somewhat Likely", "Not Very Likely", "Not At All Likely")) +
+  labs(title = "Hiring Likelihood by Treatment Group",
+       x = "Treatment Group",
+       y = "Hiring Likelihood") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set3") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+```{r}
+
+data <- data %>%
+  mutate(gender_identity = factor(Q150, levels = c(1, 2, 3), labels = c("Male", "Female", "Not sure")))
+
+summary(data$gender_identity)
+
+```
+
+```{r}
+
+freq(data$gender_identity)
+
+```
+
+```{r}
+
+chisq_test <- chisq.test(table(data$gender_identity, data$stapleton_group))
+print(chisq_test)
+
+```
+
+```{r}
+
+ggplot(data %>% drop_na(gender_identity, stapleton_group), aes(x = stapleton_group, fill = gender_identity)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Perceived Gender Identity by Treatment Group",
+       x = "Treatment Group",
+       fill = "Perceived Gender Identity") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set3")
+
+```
+
+```{r}
+
+# Calculate mean, max, and min for qualification rating
+qual_stats <- data %>%
+  group_by(stapleton_group) %>%
+  summarise(
+    mean_qual = mean(qual_rating, na.rm = TRUE),
+    min_qual = min(qual_rating, na.rm = TRUE),
+    max_qual = max(qual_rating, na.rm = TRUE)
+  )
+
+# Calculate mean, max, and min for hiring likelihood
+hire_stats <- data %>%
+  group_by(stapleton_group) %>%
+  summarise(
+    mean_hire = mean(hire_likely, na.rm = TRUE),
+    min_hire = min(hire_likely, na.rm = TRUE),
+    max_hire = max(hire_likely, na.rm = TRUE)
+  )
+
+qual_stats
+
+hire_stats
+```
+
+```{r}
+
+# Load necessary libraries
+library(dplyr)
+
+# Assuming `data` is your dataset and `stapleton_group` is the treatment group variable
+# `qual_rating` is the qualification rating variable and `hire_likely` is the hiring likelihood variable
+
+# Calculate mean and standard deviation for qualification rating
+qual_stats <- data %>%
+  group_by(stapleton_group) %>%
+  summarise(
+    mean_qual = mean(qual_rating, na.rm = TRUE),
+    sd_qual = sd(qual_rating, na.rm = TRUE)
+  )
+
+# Calculate mean and standard deviation for hiring likelihood
+hire_stats <- data %>%
+  group_by(stapleton_group) %>%
+  summarise(
+    mean_hire = mean(hire_likely, na.rm = TRUE),
+    sd_hire = sd(hire_likely, na.rm = TRUE)
+  )
+
+# Print the qualification ratings statistics
+print(qual_stats)
+
+# Print the hiring likelihood statistics
+print(hire_stats)
+
+```
+
+The `echo: false` option disables the printing of code (only output is displayed).
